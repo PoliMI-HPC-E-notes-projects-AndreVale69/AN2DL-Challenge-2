@@ -14,7 +14,7 @@ class PersistenceManager:
     """
     # full path to the current directory
     NOTEBOOKS_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    TRAIN_AND_TEST_DF_PATH = f'{NOTEBOOKS_PATH}/processed/train_and_test_df.joblib'
+    DATASET_PATH = f'{NOTEBOOKS_PATH}/processed/dataset.joblib'
 
     @staticmethod
     def _makedirs_for_file(file_path: str) -> None:
@@ -27,28 +27,28 @@ class PersistenceManager:
             os.makedirs(directory, exist_ok=True)
 
     @staticmethod
-    def load_train_and_test_df() -> DataSet:
+    def load_dataset() -> DataSet:
         """
         Loads the dataset containing arrays and scalers from the specified path.
         :return: DataSet object with loaded data.
         """
-        PersistenceManager._makedirs_for_file(PersistenceManager.TRAIN_AND_TEST_DF_PATH)
+        PersistenceManager._makedirs_for_file(PersistenceManager.DATASET_PATH)
         return (
-            print(f"Arrays and scalers loaded successfully from: {PersistenceManager.TRAIN_AND_TEST_DF_PATH}") or
-            DataSet(**joblib.load(PersistenceManager.TRAIN_AND_TEST_DF_PATH))
+                print(f"Arrays and scalers loaded successfully from: {PersistenceManager.DATASET_PATH}") or
+                DataSet(**joblib.load(PersistenceManager.DATASET_PATH))
         )
 
     @staticmethod
-    def save_train_and_test_df(data: Union[DataSet, dict], compress: Literal[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]=0) -> None:
+    def save_dataset(data: Union[DataSet, dict], compress: Literal[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]=0) -> None:
         """
         Saves the dataset containing arrays and scalers to the specified path.
         :param data: DataSet object to be saved.
         :param compress: Compression level for joblib dump (0-9). Default is 0 (no compression).
         """
-        PersistenceManager._makedirs_for_file(PersistenceManager.TRAIN_AND_TEST_DF_PATH)
+        PersistenceManager._makedirs_for_file(PersistenceManager.DATASET_PATH)
         joblib.dump(
             dict(data) if isinstance(data, DataSet) else data,
-            PersistenceManager.TRAIN_AND_TEST_DF_PATH,
+            PersistenceManager.DATASET_PATH,
             compress=compress
         )
-        print(f"Arrays and scalers saved successfully to: {PersistenceManager.TRAIN_AND_TEST_DF_PATH}")
+        print(f"Arrays and scalers saved successfully to: {PersistenceManager.DATASET_PATH}")
