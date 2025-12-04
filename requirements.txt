@@ -10,6 +10,10 @@ seaborn
 scikit-learn
 pandas-stubs
 
+# Deep Learning libraries
+torchvision
+timm    # for image models
+
 # Utilities
 joblib # for artifact management + caching
 gputil # for GPU management
