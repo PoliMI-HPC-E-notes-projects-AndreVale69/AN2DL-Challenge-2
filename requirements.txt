@@ -15,3 +15,4 @@ joblib # for artifact management + caching
 gputil # for GPU management
 psutil # for system and process utilities
 tqdm   # for progress bars
+pillow # for image processing
