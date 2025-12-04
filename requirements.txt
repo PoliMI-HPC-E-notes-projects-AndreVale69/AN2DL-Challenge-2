@@ -1,0 +1,16 @@
+# Jupyter Notebook dependencies
+jupyter
+ipykernel
+
+# Data Science libraries
+numpy
+pandas
+matplotlib
+seaborn
+scikit-learn
+pandas-stubs
+
+# Utilities
+joblib # for artifact management + caching
+gputil # for GPU management
+psutil # for system and process utilities
