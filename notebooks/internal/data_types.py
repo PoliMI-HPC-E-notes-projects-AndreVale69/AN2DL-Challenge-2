@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import torch
 from PIL import Image
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 from torchvision import transforms
 
 
@@ -71,14 +71,18 @@ class DataSet(DictLike):
     Attributes:
         train_df (pd.DataFrame): Training dataset.
         test_df (pd.DataFrame): Testing dataset.
+        val_test_transforms (transforms.Compose): Transformations for validation and testing.
+        idx2label (dict[int, str]): Mapping from index to label.
+        label2idx (dict[str, int]): Mapping from label to index.
+        num_K_folds (int): Number of K-folds for cross-validation. In other words, how many splits the training data has been divided into.
     """
     train_df: pd.DataFrame
     test_df: pd.DataFrame
-    train_loader: DataLoader
-    val_loader: DataLoader
+    train_transforms: transforms.Compose
     val_test_transforms: transforms.Compose
     idx2label: dict[int, str]
     label2idx: dict[str, int]
+    num_K_folds: int
 
 class HistologyDataset(Dataset):
     def __init__(self, df, transforms=None, is_train=True):
