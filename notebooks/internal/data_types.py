@@ -93,23 +93,25 @@ class HistologyDataset(Dataset):
     def __len__(self):
         return len(self.df)
 
-    def _crop_using_mask(self, img: Image.Image, mask: np.ndarray) -> Image.Image:
+    def _crop_using_mask(self, img: Image.Image, mask: np.ndarray):
         """
         img  : PIL RGB image
         mask : numpy array (H, W), >0 where lesion is.
-        returns a cropped PIL image
+        returns (cropped_image, cropped_mask_np)
         """
-        # find bounding box of mask (non-zero area); if no mask, return original image
         mask_pos = np.argwhere(mask > 0)
         if mask_pos.size == 0:
-            return img  # fallback
+            # return original img + original mask if no lesion
+            return img, mask
 
         y_min, x_min = mask_pos.min(axis=0)
         y_max, x_max = mask_pos.max(axis=0)
 
         H, W = mask.shape
 
-        # padding
+        # -------------------------
+        # Small padding
+        # -------------------------
         pad = 0.02
         h = y_max - y_min
         w = x_max - x_min
@@ -119,49 +121,74 @@ class HistologyDataset(Dataset):
         x_min = max(0, int(x_min - pad * w))
         x_max = min(W, int(x_max + pad * w))
 
-        # ---- NEW PART: MAKE THE CROP SQUARE ----
+        # -------------------------
+        # Square crop logic
+        # -------------------------
         crop_h = y_max - y_min
         crop_w = x_max - x_min
         side = max(crop_h, crop_w)
 
-        # center the bbox inside the square
         cy = (y_min + y_max) // 2
         cx = (x_min + x_max) // 2
-
         half = side // 2
 
         y1 = max(0, cy - half)
-        y2 = min(H, cy + half)
+        y2 = min(H, y1 + side)
         x1 = max(0, cx - half)
-        x2 = min(W, cx + half)
+        x2 = min(W, x1 + side)
 
-        # adjust if at border
-        if (y2 - y1) < side:
-            if y1 == 0: y2 = min(H, side)
-            else: y1 = max(0, y2 - side)
-        if (x2 - x1) < side:
-            if x1 == 0: x2 = min(W, side)
-            else: x1 = max(0, x2 - side)
+        # -------------------------
+        # Produce both crops
+        # -------------------------
+        cropped_img = img.crop((x1, y1, x2, y2))
+        cropped_mask = mask[y1:y2, x1:x2]
 
-        cropped = img.crop((x1, y1, x2, y2))
-        return cropped
+        return cropped_img, cropped_mask
+
+    def _random_mask_patch(self, img, mask_np, patch_size=512):
+        H, W = mask_np.shape
+        if H <= patch_size or W <= patch_size:
+            return img  # will be resized by transforms
+
+        # try a few times to find a patch with tissue
+        for _ in range(10):
+            y1 = np.random.randint(0, H - patch_size + 1)
+            x1 = np.random.randint(0, W - patch_size + 1)
+            y2 = y1 + patch_size
+            x2 = x1 + patch_size
+
+            patch_mask = mask_np[y1:y2, x1:x2]
+            if (patch_mask > 0).sum() > 500:  # at least some lesion
+                return img.crop((x1, y1, x2, y2))
+
+        # fallback: centered
+        cy, cx = H // 2, W // 2
+        y1 = max(0, cy - patch_size // 2)
+        x1 = max(0, cx - patch_size // 2)
+        y2 = min(H, y1 + patch_size)
+        x2 = min(W, x1 + patch_size)
+        return img.crop((x1, y1, x2, y2))
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
-
         img = Image.open(row["image_path"]).convert("RGB")
         mask = Image.open(row["mask_path"]).convert("L")
         mask_np = np.array(mask)
 
-        img = self._crop_using_mask(img, mask_np)
-
-        if self.transforms is not None:
-            img = self.transforms(img)
+        img_c, mask_c = self._crop_using_mask(img, mask_np)
 
         if self.is_train:
-            label = row["label_idx"]
-            label = torch.tensor(label, dtype=torch.long)
-            return img, label
+            img_p = self._random_mask_patch(img_c, mask_c, patch_size=512)
         else:
-            # for test set we return sample_index for submission
-            return img, row["sample_index"]
+            img_p = img_c  # single deterministic crop for val/test
+
+        if self.transforms is not None:
+            img_t = self.transforms(img_p)
+        else:
+            img_t = transforms.ToTensor()(img_p)
+
+        if self.is_train:
+            label = torch.tensor(row["label_idx"], dtype=torch.long)
+            return img_t, label
+        else:
+            return img_t, row["sample_index"]
