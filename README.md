@@ -76,7 +76,7 @@ And navigate to the notebook files in your web browser (usually at `http://local
 
 ## Dataset Description
 
-Competition hosted at [AN2DL 2025-2026](https://www.kaggle.com/competitions/an2dl2526c2).
+Competition hosted at [AN2DL 2025-2026](https://www.kaggle.com/competitions/an2dl2526c2v2).
 
 ### 👹 The Grumpy Doctogres Challenge
 
@@ -99,15 +99,7 @@ These labels tell our orc surgeons which surgical instrument to swing next:
 
 ### 🪨 Files
 
-- `pirate_pain_train.csv` — training set
-- `pirate_pain_train_labels.csv` — labels for the training set
-- `pirate_pain_test.csv` — test set (with no labels)
-- `sample_submission.csv` — an example of random submission
-
-
-### 🧭 Data Overview
-
-The dataset contains **2,366 images** of different sizes,
+The dataset contains **1,272 images** of different sizes,
 each paired with a binary mask crafted by our team of dedicated doctogres.
 These masks identify the regions most likely to contain the diseased tissue.
 Our staff guarantees that the dataset has been collected in a completely orc-skin-free, booger-free,
@@ -117,8 +109,8 @@ Create a table summarizing the dataset, including:
 
 | **File Location** | **Description**                                                    |
 |-------------------|--------------------------------------------------------------------|
-| train_data.zip    | **1,412** image/mask pairs for model training                      |
-| test_data.zip     | **954** image/mask pairs for final evaluation (no labels provided) |
+| train_data.zip    | **691** image/mask pairs for model training                        |
+| test_data.zip     | **477** image/mask pairs for final evaluation (no labels provided) |
 | train_labels.csv  | Ground-truth molecular subtype labels for the training set         |
 
 The following is an example image with the corresponding auxiliary mask.
