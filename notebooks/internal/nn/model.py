@@ -1,5 +1,5 @@
 import torch
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 from tqdm import tqdm
 
 
@@ -31,7 +31,7 @@ def train_one_epoch(model, loader, optimizer, criterion, device):
     acc = accuracy_score(all_targets, all_preds)
     f1 = f1_score(all_targets, all_preds, average='macro')
 
-    print(f"[] t_loss={epoch_loss:.4f} | F1(macro)={f1:.4f} | Acc={acc:.4f}")
+    print(f"    t_loss={epoch_loss:.4f} | F1(macro)={f1:.4f} | Acc={acc:.4f}")
 
     return epoch_loss, acc, f1
 
@@ -59,5 +59,7 @@ def validate(model, loader, criterion, device):
     epoch_loss = running_loss / len(loader.dataset)
     acc = accuracy_score(all_targets, all_preds)
     f1 = f1_score(all_targets, all_preds, average='macro')
+    cm = confusion_matrix(all_targets, all_preds)
 
+    print("Confusion matrix:\n", cm)
     return epoch_loss, acc, f1
