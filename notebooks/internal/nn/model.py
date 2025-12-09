@@ -1,9 +1,10 @@
 import torch
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
+from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
 
 
-def train_one_epoch(model, loader, optimizer, criterion, device):
+def train_one_epoch(model, loader, optimizer, criterion, device, mixup_fn=None):
     model.train()
     running_loss = 0.0
     all_preds, all_targets = [], []
@@ -12,9 +13,24 @@ def train_one_epoch(model, loader, optimizer, criterion, device):
         imgs = imgs.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
+        # Keep the original labels for metrics
+        targets_for_metrics = labels.clone()
+
         optimizer.zero_grad()
-        logits = model(imgs)
-        loss = criterion(logits, labels)
+
+        if mixup_fn is not None:
+            imgs_aug, y1, y2, lam, mode = mixup_fn(imgs, labels)
+            logits = model(imgs_aug)
+
+            if mode == "none":
+                loss = criterion(logits, y1)
+            else:
+                # mix the losses of the two label sets
+                loss = lam * criterion(logits, y1) + (1.0 - lam) * criterion(logits, y2)
+        else:
+            logits = model(imgs)
+            loss = criterion(logits, labels)
+
         loss.backward()
         optimizer.step()
 
@@ -22,7 +38,7 @@ def train_one_epoch(model, loader, optimizer, criterion, device):
 
         preds = logits.argmax(dim=1)
         all_preds.append(preds.detach().cpu())
-        all_targets.append(labels.detach().cpu())
+        all_targets.append(targets_for_metrics.detach().cpu())
 
     all_preds = torch.cat(all_preds).numpy()
     all_targets = torch.cat(all_targets).numpy()
