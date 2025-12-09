@@ -128,8 +128,10 @@ class HistologyDataset(Dataset):
 
         # if is_train, add color jitter to transforms
         self.color_jitter: transforms.ColorJitter | None = transforms.ColorJitter(
-            brightness=0.15, contrast=0.15,
-            saturation=0.15, hue=0.03
+            brightness=0.15,
+            contrast=0.15,
+            saturation=0.15,
+            hue=0.03
         ) if is_train else None
 
         # if is_train, add random erasing to transforms
@@ -193,7 +195,7 @@ class HistologyDataset(Dataset):
 
         if self.is_train:
             # Stronger RandomResizedCrop
-            scale = (0.7, 1.0)
+            scale = (0.8, 1.0)
             ratio = (0.85, 1.15)
             i, j, h, w = transforms.RandomResizedCrop.get_params(
                 img_pil, scale=scale, ratio=ratio
@@ -220,8 +222,8 @@ class HistologyDataset(Dataset):
                 img_pil = F.vflip(img_pil)
                 mask_pil = F.vflip(mask_pil)
 
-            # Random Rotation from 0 to 360 degrees
-            angle = random.uniform(0, 360)
+            # Random Rotation
+            angle = random.uniform(-20, 20)
             img_pil = F.rotate(
                 img_pil, angle,
                 interpolation=InterpolationMode.BILINEAR,
@@ -285,24 +287,24 @@ class HistologyDataset(Dataset):
         Train only.
         """
         # Gaussian blur (simulates out-of-focus / smear)
-        if random.random() < 0.15: # 15%
-            radius = random.uniform(0.5, 1.5)
-            img_pil = img_pil.filter(ImageFilter.GaussianBlur(radius=radius))
-
-        # Gamma / brightness variation (old / uneven slides)
-        if random.random() < 0.15: # 15%
-            gamma = random.uniform(0.7, 1.3)
-            img_pil = F.adjust_gamma(img_pil, gamma=gamma)
-
-        # Small Gaussian noise (dust / tiny artefacts)
-        if random.random() < 0.15: # 15%
-            img_np = np.array(img_pil).astype(np.float32) / 255.0
-            noise = np.random.normal(0.0, 0.03, img_np.shape).astype(np.float32)
-            img_np = np.clip(img_np + noise, 0.0, 1.0)
-            img_pil = Image.fromarray((img_np * 255).astype(np.uint8))
-
-        # Add marker occlusion simulation
-        img_pil = self._apply_marker_occlusion(img_pil)
+        # if random.random() < 0.15: # 15%
+        #     radius = random.uniform(0.5, 1.5)
+        #     img_pil = img_pil.filter(ImageFilter.GaussianBlur(radius=radius))
+        #
+        # # Gamma / brightness variation (old / uneven slides)
+        # if random.random() < 0.15: # 15%
+        #     gamma = random.uniform(0.7, 1.3)
+        #     img_pil = F.adjust_gamma(img_pil, gamma=gamma)
+        #
+        # # Small Gaussian noise (dust / tiny artefacts)
+        # if random.random() < 0.15: # 15%
+        #     img_np = np.array(img_pil).astype(np.float32) / 255.0
+        #     noise = np.random.normal(0.0, 0.03, img_np.shape).astype(np.float32)
+        #     img_np = np.clip(img_np + noise, 0.0, 1.0)
+        #     img_pil = Image.fromarray((img_np * 255).astype(np.uint8))
+        #
+        # # Add marker occlusion simulation
+        # img_pil = self._apply_marker_occlusion(img_pil)
 
         return img_pil
 
