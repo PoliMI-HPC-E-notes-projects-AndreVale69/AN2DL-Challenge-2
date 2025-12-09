@@ -193,8 +193,8 @@ class HistologyDataset(Dataset):
 
         if self.is_train:
             # Stronger RandomResizedCrop
-            scale = (0.6, 1.0)
-            ratio = (0.8, 1.2)
+            scale = (0.7, 1.0)
+            ratio = (0.85, 1.15)
             i, j, h, w = transforms.RandomResizedCrop.get_params(
                 img_pil, scale=scale, ratio=ratio
             )
