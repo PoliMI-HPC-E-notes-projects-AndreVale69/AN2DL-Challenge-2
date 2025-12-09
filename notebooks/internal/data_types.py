@@ -121,6 +121,9 @@ class HistologyDataset(Dataset):
         self.is_train = is_train
         self.use_mask_crop = use_mask_crop
 
+        # check if labels are present
+        self.has_labels = "label_idx" in self.df.columns
+
         # if is_train, add color jitter to transforms
         self.color_jitter = transforms.ColorJitter(
             brightness=0.15, contrast=0.15,
@@ -219,7 +222,6 @@ class HistologyDataset(Dataset):
                 interpolation=InterpolationMode.NEAREST,
                 fill=0
             )
-
         else:
             # Resize to image_size
             img_pil = F.resize(img_pil, size=(self.image_size, self.image_size),
@@ -261,9 +263,10 @@ class HistologyDataset(Dataset):
         # 7) concatenate img + mask
         x4 = torch.cat([img_t, mask_t], dim=0)  # 4xHxW
 
-        if self.is_train:
+        if self.has_labels:
+            # train or val
             label = torch.tensor(row["label_idx"], dtype=torch.long)
             return x4, label
         else:
-            # per il test Kaggle
+            # test (no labels, only sample_index)
             return x4, row["sample_index"]
