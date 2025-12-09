@@ -148,38 +148,65 @@ class HistologyDataset(Dataset):
     def _crop_using_mask(self, img_pil: Image.Image, mask_np: np.ndarray) -> tuple[Image.Image, np.ndarray]:
         """
         Returns a square crop around the lesion + corresponding cropped mask.
-        If mask is empty, returns original image and mask.
+        If mask is empty or extremely small, fall back to the original image.
         """
-        mask_pos = np.argwhere(mask_np > 0)
-        if mask_pos.size == 0:
-            return img_pil, mask_np  # empty mask: return original
+        H, W = mask_np.shape
 
+        # 1) Where is the mask > 0?
+        mask_pos = np.argwhere(mask_np > 0)
+
+        if mask_pos.size == 0:
+            # Completely empty mask -> trust the original framing
+            return img_pil, mask_np
+
+        # 2) Compute mask area ratio
+        mask_area = mask_pos.shape[0]
+        area_ratio = mask_area / float(H * W)
+
+        # If the mask is too tiny (e.g. < 1% of the image), it's probably not reliable
+        # -> keep the original image and mask instead of zooming like crazy.
+        if area_ratio < 0.01:
+            return img_pil, mask_np
+
+        # 3) Basic bounding box
         y_min, x_min = mask_pos.min(axis=0)
         y_max, x_max = mask_pos.max(axis=0)
 
-        H, W = mask_np.shape
+        # Ensure valid bounds
+        y_min = max(0, y_min)
+        x_min = max(0, x_min)
+        y_max = min(H - 1, y_max)
+        x_max = min(W - 1, x_max)
 
-        pad = 0.02  # 2% padding
-        h = y_max - y_min
-        w = x_max - x_min
+        # 4) Expand bbox a bit to include context
+        # Random expansion between 10% and 30%
+        expand_factor = np.random.uniform(1.1, 1.3)
 
-        y_min = max(0, int(y_min - pad * h))
-        y_max = min(H, int(y_max + pad * h))
-        x_min = max(0, int(x_min - pad * w))
-        x_max = min(W, int(x_max + pad * w))
+        bbox_h = y_max - y_min + 1
+        bbox_w = x_max - x_min + 1
+        cy = (y_min + y_max) / 2.0
+        cx = (x_min + x_max) / 2.0
 
-        crop_h = y_max - y_min
-        crop_w = x_max - x_min
-        side = max(crop_h, crop_w)
+        half_h = (bbox_h * expand_factor) / 2.0
+        half_w = (bbox_w * expand_factor) / 2.0
 
-        cy = (y_min + y_max) // 2
-        cx = (x_min + x_max) // 2
-        half = side // 2
+        # Make square by taking the max half-size
+        half_side = max(half_h, half_w)
 
-        y1 = max(0, cy - half)
-        x1 = max(0, cx - half)
-        y2 = min(H, y1 + side)
-        x2 = min(W, x1 + side)
+        y1 = int(round(cy - half_side))
+        y2 = int(round(cy + half_side))
+        x1 = int(round(cx - half_side))
+        x2 = int(round(cx + half_side))
+
+        # Clip to image borders
+        y1 = max(0, y1)
+        x1 = max(0, x1)
+        y2 = min(H, y2)
+        x2 = min(W, x2)
+
+        # Final safety: if something went wrong, just return original
+        if (y2 <= y1) or (x2 <= x1):
+            return img_pil, mask_np
 
         cropped_img = img_pil.crop((x1, y1, x2, y2))
         cropped_mask = mask_np[y1:y2, x1:x2]
@@ -189,41 +216,35 @@ class HistologyDataset(Dataset):
     # ---------- 2) Augment with joint transforms img+mask ----------
     def _apply_joint_transforms(self, img_pil: Image.Image, mask_np: np.ndarray) -> tuple:
         """
-        Applies joint transformations to the image and mask.
+        Joint geometric transforms for img + mask.
+        We assume we've already applied mask-based cropping.
         """
-        mask_pil = Image.fromarray(mask_np.astype(np.uint8))  # mask 0/255
+        mask_pil = Image.fromarray(mask_np.astype(np.uint8))
 
         if self.is_train:
-            # Stronger RandomResizedCrop
-            scale = (0.8, 1.0)
-            ratio = (0.85, 1.15)
-            i, j, h, w = transforms.RandomResizedCrop.get_params(
-                img_pil, scale=scale, ratio=ratio
-            )
-
-            img_pil = F.resized_crop(
-                img_pil, i, j, h, w,
+            # 1) Just resize to target size first
+            img_pil = F.resize(
+                img_pil,
                 size=(self.image_size, self.image_size),
                 interpolation=InterpolationMode.BILINEAR
             )
-            mask_pil = F.resized_crop(
-                mask_pil, i, j, h, w,
+            mask_pil = F.resize(
+                mask_pil,
                 size=(self.image_size, self.image_size),
                 interpolation=InterpolationMode.NEAREST
             )
 
-            # Horizontal Flip
+            # 2) Horizontal / vertical flips
             if random.random() < 0.5:
                 img_pil = F.hflip(img_pil)
                 mask_pil = F.hflip(mask_pil)
 
-            # Vertical Flip
             if random.random() < 0.5:
                 img_pil = F.vflip(img_pil)
                 mask_pil = F.vflip(mask_pil)
 
-            # Random Rotation
-            angle = random.uniform(-20, 20)
+            # 3) Small rotation
+            angle = random.uniform(-15.0, 15.0)
             img_pil = F.rotate(
                 img_pil, angle,
                 interpolation=InterpolationMode.BILINEAR,
@@ -234,6 +255,7 @@ class HistologyDataset(Dataset):
                 interpolation=InterpolationMode.NEAREST,
                 fill=0
             )
+
         else:
             # Validation / test: deterministic resize only
             img_pil = F.resize(
