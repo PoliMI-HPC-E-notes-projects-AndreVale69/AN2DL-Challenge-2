@@ -247,6 +247,36 @@ class HistologyDataset(Dataset):
 
         return img_pil, mask_pil
 
+    def _apply_marker_occlusion(self, img_pil: Image.Image) -> Image.Image:
+        """
+        Simulate marker-pen artifacts by drawing random irregular blobs.
+        """
+        if random.random() < 0.20:  # 20% chance
+            img_np = np.array(img_pil).copy()
+            H, W, _ = img_np.shape
+
+            # Random center
+            cx = random.randint(0, W - 1)
+            cy = random.randint(0, H - 1)
+
+            # Random blob size
+            radius = random.randint(int(0.1 * min(W, H)), int(0.25 * min(W, H)))
+
+            # Blob color (green-ish like marker pen)
+            color = np.array([0, random.randint(180, 255), random.randint(0, 80)])
+
+            # Draw circular / irregular blob
+            Y, X = np.ogrid[:H, :W]
+            mask = (X - cx) ** 2 + (Y - cy) ** 2 <= radius ** 2
+
+            # Blend: semi-transparent
+            alpha = 0.6
+            img_np[mask] = (alpha * img_np[mask] + (1 - alpha) * color).astype(np.uint8)
+
+            img_pil = Image.fromarray(img_np)
+
+        return img_pil
+
     # ---------- 3) Artifact-style appearance augmentations ----------
     def _apply_artifact_augs(self, img_pil: Image.Image) -> Image.Image:
         """
@@ -270,6 +300,9 @@ class HistologyDataset(Dataset):
             noise = np.random.normal(0.0, 0.03, img_np.shape).astype(np.float32)
             img_np = np.clip(img_np + noise, 0.0, 1.0)
             img_pil = Image.fromarray((img_np * 255).astype(np.uint8))
+
+        # Add marker occlusion simulation
+        img_pil = self._apply_marker_occlusion(img_pil)
 
         return img_pil
 
