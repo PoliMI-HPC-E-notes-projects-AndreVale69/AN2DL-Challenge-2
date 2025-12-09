@@ -6,8 +6,10 @@ from dataclasses import dataclass, asdict
 import numpy as np
 import pandas as pd
 import torch
+import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
 from PIL import Image
+from PIL import ImageFilter
 from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
@@ -125,16 +127,25 @@ class HistologyDataset(Dataset):
         self.has_labels = "label_idx" in self.df.columns
 
         # if is_train, add color jitter to transforms
-        self.color_jitter = transforms.ColorJitter(
-            brightness=0.15, contrast=0.15,
-            saturation=0.15, hue=0.03
+        self.color_jitter: transforms.ColorJitter | None = transforms.ColorJitter(
+            brightness=0.15,
+            contrast=0.15,
+            saturation=0.15,
+            hue=0.03
+        ) if is_train else None
+
+        # if is_train, add random erasing to transforms
+        self.random_erasing: transforms.RandomErasing | None = transforms.RandomErasing(
+            p=0.25,
+            scale=(0.02, 0.15),
+            ratio=(0.3, 3.3)
         ) if is_train else None
 
     def __len__(self):
         return len(self.df)
 
     # ---------- 1) Crop around mask (square) ----------
-    def _crop_using_mask(self, img_pil: Image.Image, mask_np: np.ndarray):
+    def _crop_using_mask(self, img_pil: Image.Image, mask_np: np.ndarray) -> tuple[Image.Image, np.ndarray]:
         """
         Returns a square crop around the lesion + corresponding cropped mask.
         If mask is empty, returns original image and mask.
@@ -176,15 +187,16 @@ class HistologyDataset(Dataset):
         return cropped_img, cropped_mask
 
     # ---------- 2) Augment with joint transforms img+mask ----------
-    def _apply_joint_transforms(self, img_pil: Image.Image, mask_np: np.ndarray):
+    def _apply_joint_transforms(self, img_pil: Image.Image, mask_np: np.ndarray) -> tuple:
         """
+        Applies joint transformations to the image and mask.
         """
         mask_pil = Image.fromarray(mask_np.astype(np.uint8))  # mask 0/255
 
         if self.is_train:
-            # RandomResizedCrop: 80-100% scale, 0.9-1.1 ratio
+            # Stronger RandomResizedCrop
             scale = (0.8, 1.0)
-            ratio = (0.9, 1.1)
+            ratio = (0.85, 1.15)
             i, j, h, w = transforms.RandomResizedCrop.get_params(
                 img_pil, scale=scale, ratio=ratio
             )
@@ -211,7 +223,7 @@ class HistologyDataset(Dataset):
                 mask_pil = F.vflip(mask_pil)
 
             # Random Rotation
-            angle = random.uniform(-15, 15)
+            angle = random.uniform(-20, 20)
             img_pil = F.rotate(
                 img_pil, angle,
                 interpolation=InterpolationMode.BILINEAR,
@@ -223,15 +235,80 @@ class HistologyDataset(Dataset):
                 fill=0
             )
         else:
-            # Resize to image_size
-            img_pil = F.resize(img_pil, size=(self.image_size, self.image_size),
-                               interpolation=InterpolationMode.BILINEAR)
-            mask_pil = F.resize(mask_pil, size=(self.image_size, self.image_size),
-                                interpolation=InterpolationMode.NEAREST)
+            # Validation / test: deterministic resize only
+            img_pil = F.resize(
+                img_pil,
+                size=(self.image_size, self.image_size),
+                interpolation=InterpolationMode.BILINEAR
+            )
+            mask_pil = F.resize(
+                mask_pil,
+                size=(self.image_size, self.image_size),
+                interpolation=InterpolationMode.NEAREST
+            )
 
         return img_pil, mask_pil
 
-    # ---------- 3) __getitem__ ----------
+    def _apply_marker_occlusion(self, img_pil: Image.Image) -> Image.Image:
+        """
+        Simulate marker-pen artifacts by drawing random irregular blobs.
+        """
+        if random.random() < 0.05:  # 5% chance
+            img_np = np.array(img_pil).copy()
+            H, W, _ = img_np.shape
+
+            # Random center
+            cx = random.randint(0, W - 1)
+            cy = random.randint(0, H - 1)
+
+            # Random blob size
+            radius = random.randint(int(0.1 * min(W, H)), int(0.25 * min(W, H)))
+
+            # Blob color (green-ish like marker pen)
+            color = np.array([0, random.randint(180, 255), random.randint(0, 80)])
+
+            # Draw circular / irregular blob
+            Y, X = np.ogrid[:H, :W]
+            mask = (X - cx) ** 2 + (Y - cy) ** 2 <= radius ** 2
+
+            # Blend: semi-transparent
+            alpha = 0.6
+            img_np[mask] = (alpha * img_np[mask] + (1 - alpha) * color).astype(np.uint8)
+
+            img_pil = Image.fromarray(img_np)
+
+        return img_pil
+
+    # ---------- 3) Artifact-style appearance augmentations ----------
+    def _apply_artifact_augs(self, img_pil: Image.Image) -> Image.Image:
+        """
+        Simulate blur, illumination changes, and small noise
+        to make the model robust to slide / scanner artefacts.
+        Train only.
+        """
+        # Gaussian blur (simulates out-of-focus / smear)
+        # if random.random() < 0.15: # 15%
+        #     radius = random.uniform(0.5, 1.5)
+        #     img_pil = img_pil.filter(ImageFilter.GaussianBlur(radius=radius))
+        #
+        # # Gamma / brightness variation (old / uneven slides)
+        # if random.random() < 0.15: # 15%
+        #     gamma = random.uniform(0.7, 1.3)
+        #     img_pil = F.adjust_gamma(img_pil, gamma=gamma)
+        #
+        # # Small Gaussian noise (dust / tiny artefacts)
+        # if random.random() < 0.15: # 15%
+        #     img_np = np.array(img_pil).astype(np.float32) / 255.0
+        #     noise = np.random.normal(0.0, 0.03, img_np.shape).astype(np.float32)
+        #     img_np = np.clip(img_np + noise, 0.0, 1.0)
+        #     img_pil = Image.fromarray((img_np * 255).astype(np.uint8))
+        #
+        # # Add marker occlusion simulation
+        # img_pil = self._apply_marker_occlusion(img_pil)
+
+        return img_pil
+
+    # ---------- 4) __getitem__ ----------
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
 
@@ -244,29 +321,34 @@ class HistologyDataset(Dataset):
         if self.use_mask_crop:
             img, mask_np = self._crop_using_mask(img, mask_np)
 
-        # 3) joint transforms img + mask
+        # 3) joint spatial transforms (img + mask)
         img, mask_pil = self._apply_joint_transforms(img, mask_np)
 
-        # 4) color jitter apply only to img
-        if self.is_train and self.color_jitter is not None:
-            img = self.color_jitter(img)
+        # 4) appearance / artifact augs (img only, train only)
+        if self.is_train:
+            img = self._apply_artifact_augs(img)
+            if self.color_jitter is not None:
+                img = self.color_jitter(img)
 
-        # 5) convert to tensor
+        # 5) to tensor
         img_t = F.to_tensor(img)  # 3xHxW, [0,1]
         mask_np_final = np.array(mask_pil)  # HxW, 0-255
-        mask_t = torch.from_numpy(mask_np_final).float() / 255.0  # HxW in [0,1]
+        mask_t = torch.from_numpy(mask_np_final).float() / 255.0  # HxW
         mask_t = mask_t.unsqueeze(0)  # 1xHxW
 
-        # 6) normalize img
+        # 6) normalize image
         img_t = transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)(img_t)
 
-        # 7) concatenate img + mask
+        # 7) random erasing (image only, train only)
+        if self.is_train and self.random_erasing is not None:
+            img_t = self.random_erasing(img_t)
+
+        # 8) concatenate img + mask -> 4 channels
         x4 = torch.cat([img_t, mask_t], dim=0)  # 4xHxW
 
+        # 9) return label or sample_index
         if self.has_labels:
-            # train or val
             label = torch.tensor(row["label_idx"], dtype=torch.long)
             return x4, label
         else:
-            # test (no labels, only sample_index)
             return x4, row["sample_index"]
