@@ -251,7 +251,7 @@ class HistologyDataset(Dataset):
         """
         Simulate marker-pen artifacts by drawing random irregular blobs.
         """
-        if random.random() < 0.20:  # 20% chance
+        if random.random() < 0.05:  # 5% chance
             img_np = np.array(img_pil).copy()
             H, W, _ = img_np.shape
 
@@ -285,17 +285,17 @@ class HistologyDataset(Dataset):
         Train only.
         """
         # Gaussian blur (simulates out-of-focus / smear)
-        if random.random() < 0.3:
+        if random.random() < 0.15: # 15%
             radius = random.uniform(0.5, 1.5)
             img_pil = img_pil.filter(ImageFilter.GaussianBlur(radius=radius))
 
         # Gamma / brightness variation (old / uneven slides)
-        if random.random() < 0.3:
+        if random.random() < 0.15: # 15%
             gamma = random.uniform(0.7, 1.3)
             img_pil = F.adjust_gamma(img_pil, gamma=gamma)
 
         # Small Gaussian noise (dust / tiny artefacts)
-        if random.random() < 0.3:
+        if random.random() < 0.15: # 15%
             img_np = np.array(img_pil).astype(np.float32) / 255.0
             noise = np.random.normal(0.0, 0.03, img_np.shape).astype(np.float32)
             img_np = np.clip(img_np + noise, 0.0, 1.0)
