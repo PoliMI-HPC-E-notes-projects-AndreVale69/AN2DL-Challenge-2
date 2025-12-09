@@ -1,13 +1,16 @@
 """
 """
+import random
 from dataclasses import dataclass, asdict
 
 import numpy as np
 import pandas as pd
 import torch
+import torchvision.transforms.functional as F
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
+from torchvision.transforms import InterpolationMode
 
 
 @dataclass
@@ -86,43 +89,63 @@ class DataSet(DictLike):
     num_K_folds: int
     image_size: int
 
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+"""
+Standard ImageNet mean for normalization.
+"""
+
+IMAGENET_STD  = [0.229, 0.224, 0.225]
+"""
+Standard ImageNet standard deviation for normalization.
+"""
+
 class HistologyDataset(Dataset):
-    def __init__(self, df, image_size, transforms=None, is_train=True):
+    def __init__(self, df, image_size, is_train=True, use_mask_crop=True):
         """
         df: DataFrame with columns:
             - image_path
             - mask_path
-            - label_idx (for train/val)
-            - sample_index (for test)
-        image_size: final image size (after transforms)
-        transforms: torchvision transforms to apply to final PIL image
-        is_train: if True -> return (image, label), else -> (image, sample_index)
+            - label_idx     (train/val)
+            - sample_index  (test when is_train=False)
+        image_size: output image size (H=W=image_size)
+        is_train: True -> (x4, label), False -> (x4, sample_index)
+        use_mask_crop: if True, crop around mask before augmentations
+
+        4-channel input:
+        - 3 channels RGB image normalized with ImageNet stats
+        - 1 channel mask normalized to [0,1]
+
         """
         self.df = df.reset_index(drop=True)
         self.image_size = image_size
-        self.transforms = transforms
         self.is_train = is_train
+        self.use_mask_crop = use_mask_crop
+
+        # if is_train, add color jitter to transforms
+        self.color_jitter = transforms.ColorJitter(
+            brightness=0.15, contrast=0.15,
+            saturation=0.15, hue=0.03
+        ) if is_train else None
 
     def __len__(self):
         return len(self.df)
 
     # ---------- 1) Crop around mask (square) ----------
-    def _crop_using_mask(self, img: Image.Image, mask: np.ndarray):
+    def _crop_using_mask(self, img_pil: Image.Image, mask_np: np.ndarray):
         """
-        Returns a square crop around the lesion + corresponding cropped mask
+        Returns a square crop around the lesion + corresponding cropped mask.
+        If mask is empty, returns original image and mask.
         """
-        # find bounding box of mask (non-zero area); if no mask, return original image
-        mask_pos = np.argwhere(mask > 0)
+        mask_pos = np.argwhere(mask_np > 0)
         if mask_pos.size == 0:
-            return img, mask  # fallback: no lesion
+            return img_pil, mask_np  # empty mask: return original
 
         y_min, x_min = mask_pos.min(axis=0)
         y_max, x_max = mask_pos.max(axis=0)
 
-        H, W = mask.shape
+        H, W = mask_np.shape
 
-        # padding
-        pad = 0.02
+        pad = 0.02  # 2% padding
         h = y_max - y_min
         w = x_max - x_min
 
@@ -144,67 +167,103 @@ class HistologyDataset(Dataset):
         y2 = min(H, y1 + side)
         x2 = min(W, x1 + side)
 
-        cropped_img = img.crop((x1, y1, x2, y2))
-        cropped_mask = mask[y1:y2, x1:x2]
+        cropped_img = img_pil.crop((x1, y1, x2, y2))
+        cropped_mask = mask_np[y1:y2, x1:x2]
 
         return cropped_img, cropped_mask
 
-    # ---------- 2) Random mask-guided patch (TRAIN ONLY) ----------
-    def _random_mask_patch(self, img: Image.Image, mask_np: np.ndarray, patch_size: int | None):
+    # ---------- 2) Augment with joint transforms img+mask ----------
+    def _apply_joint_transforms(self, img_pil: Image.Image, mask_np: np.ndarray):
         """
-        From a (possibly large) mask-centered crop, take a random patch of size patch_size×patch_size
-        that contains some lesion pixels. If we fail, fall back to center crop.
         """
-        patch_size = patch_size if patch_size is not None else self.image_size
+        mask_pil = Image.fromarray(mask_np.astype(np.uint8))  # mask 0/255
 
-        H, W = mask_np.shape
-        if H <= patch_size or W <= patch_size:
-            # Crop smaller than requested patch → just return whole crop
-            return img
+        if self.is_train:
+            # RandomResizedCrop: 80-100% scale, 0.9-1.1 ratio
+            scale = (0.8, 1.0)
+            ratio = (0.9, 1.1)
+            i, j, h, w = transforms.RandomResizedCrop.get_params(
+                img_pil, scale=scale, ratio=ratio
+            )
 
-        # Try several times to find a patch with enough lesion pixels
-        for _ in range(10):
-            y1 = np.random.randint(0, H - patch_size + 1)
-            x1 = np.random.randint(0, W - patch_size + 1)
-            y2 = y1 + patch_size
-            x2 = x1 + patch_size
+            img_pil = F.resized_crop(
+                img_pil, i, j, h, w,
+                size=(self.image_size, self.image_size),
+                interpolation=InterpolationMode.BILINEAR
+            )
+            mask_pil = F.resized_crop(
+                mask_pil, i, j, h, w,
+                size=(self.image_size, self.image_size),
+                interpolation=InterpolationMode.NEAREST
+            )
 
-            patch_mask = mask_np[y1:y2, x1:x2]
-            if (patch_mask > 0).sum() > 500:  # threshold: at least some lesion
-                return img.crop((x1, y1, x2, y2))
+            # Horizontal Flip
+            if random.random() < 0.5:
+                img_pil = F.hflip(img_pil)
+                mask_pil = F.hflip(mask_pil)
 
-        # Fallback: center patch
-        cy, cx = H // 2, W // 2
-        y1 = max(0, cy - patch_size // 2)
-        x1 = max(0, cx - patch_size // 2)
-        y2 = min(H, y1 + patch_size)
-        x2 = min(W, x1 + patch_size)
-        return img.crop((x1, y1, x2, y2))
+            # Vertical Flip
+            if random.random() < 0.5:
+                img_pil = F.vflip(img_pil)
+                mask_pil = F.vflip(mask_pil)
+
+            # Random Rotation
+            angle = random.uniform(-15, 15)
+            img_pil = F.rotate(
+                img_pil, angle,
+                interpolation=InterpolationMode.BILINEAR,
+                fill=(255, 255, 255)
+            )
+            mask_pil = F.rotate(
+                mask_pil, angle,
+                interpolation=InterpolationMode.NEAREST,
+                fill=0
+            )
+
+        else:
+            # Resize to image_size
+            img_pil = F.resize(img_pil, size=(self.image_size, self.image_size),
+                               interpolation=InterpolationMode.BILINEAR)
+            mask_pil = F.resize(mask_pil, size=(self.image_size, self.image_size),
+                                interpolation=InterpolationMode.NEAREST)
+
+        return img_pil, mask_pil
 
     # ---------- 3) __getitem__ ----------
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
 
+        # 1) load image + mask
         img = Image.open(row["image_path"]).convert("RGB")
-        mask = Image.open(row["mask_path"]).convert("L")
-        mask_np = np.array(mask)
+        mask_pil = Image.open(row["mask_path"]).convert("L")
+        mask_np = np.array(mask_pil)
 
-        img_c, mask_c = self._crop_using_mask(img, mask_np)
+        # 2) crop using mask
+        if self.use_mask_crop:
+            img, mask_np = self._crop_using_mask(img, mask_np)
 
-        if self.is_train:
-            # During training: every epoch a different patch over the lesion
-            img_p = self._random_mask_patch(img_c, mask_c, patch_size=self.image_size)
-        else:
-            # For val/test: just use the full lesion-centered crop
-            img_p = img_c
+        # 3) joint transforms img + mask
+        img, mask_pil = self._apply_joint_transforms(img, mask_np)
 
-        if self.transforms is not None:
-            img_t = self.transforms(img_p)
-        else:
-            img_t = transforms.ToTensor()(img_p)
+        # 4) color jitter apply only to img
+        if self.is_train and self.color_jitter is not None:
+            img = self.color_jitter(img)
+
+        # 5) convert to tensor
+        img_t = F.to_tensor(img)  # 3xHxW, [0,1]
+        mask_np_final = np.array(mask_pil)  # HxW, 0-255
+        mask_t = torch.from_numpy(mask_np_final).float() / 255.0  # HxW in [0,1]
+        mask_t = mask_t.unsqueeze(0)  # 1xHxW
+
+        # 6) normalize img
+        img_t = transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)(img_t)
+
+        # 7) concatenate img + mask
+        x4 = torch.cat([img_t, mask_t], dim=0)  # 4xHxW
 
         if self.is_train:
             label = torch.tensor(row["label_idx"], dtype=torch.long)
-            return img_t, label
+            return x4, label
         else:
-            return img_t, row["sample_index"]
+            # per il test Kaggle
+            return x4, row["sample_index"]
