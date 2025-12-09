@@ -125,9 +125,16 @@ class HistologyDataset(Dataset):
         self.has_labels = "label_idx" in self.df.columns
 
         # if is_train, add color jitter to transforms
-        self.color_jitter = transforms.ColorJitter(
+        self.color_jitter: transforms.ColorJitter | None = transforms.ColorJitter(
             brightness=0.15, contrast=0.15,
             saturation=0.15, hue=0.03
+        ) if is_train else None
+
+        # if is_train, add random erasing to transforms
+        self.random_erasing: transforms.RandomErasing | None = transforms.RandomErasing(
+            p=0.25,
+            scale=(0.02, 0.15),
+            ratio=(0.3, 3.3)
         ) if is_train else None
 
     def __len__(self):
@@ -176,15 +183,16 @@ class HistologyDataset(Dataset):
         return cropped_img, cropped_mask
 
     # ---------- 2) Augment with joint transforms img+mask ----------
-    def _apply_joint_transforms(self, img_pil: Image.Image, mask_np: np.ndarray):
+    def _apply_joint_transforms(self, img_pil: Image.Image, mask_np: np.ndarray) -> tuple:
         """
+        Applies joint transformations to the image and mask.
         """
         mask_pil = Image.fromarray(mask_np.astype(np.uint8))  # mask 0/255
 
         if self.is_train:
             # RandomResizedCrop: 80-100% scale, 0.9-1.1 ratio
-            scale = (0.8, 1.0)
-            ratio = (0.9, 1.1)
+            scale = (0.6, 1.0)
+            ratio = (0.8, 1.2)
             i, j, h, w = transforms.RandomResizedCrop.get_params(
                 img_pil, scale=scale, ratio=ratio
             )
@@ -210,8 +218,8 @@ class HistologyDataset(Dataset):
                 img_pil = F.vflip(img_pil)
                 mask_pil = F.vflip(mask_pil)
 
-            # Random Rotation
-            angle = random.uniform(-15, 15)
+            # Random Rotation from 0 to 360 degrees
+            angle = random.uniform(0, 360)
             img_pil = F.rotate(
                 img_pil, angle,
                 interpolation=InterpolationMode.BILINEAR,
@@ -223,11 +231,15 @@ class HistologyDataset(Dataset):
                 fill=0
             )
         else:
-            # Resize to image_size
-            img_pil = F.resize(img_pil, size=(self.image_size, self.image_size),
-                               interpolation=InterpolationMode.BILINEAR)
-            mask_pil = F.resize(mask_pil, size=(self.image_size, self.image_size),
-                                interpolation=InterpolationMode.NEAREST)
+            # Validation / test: deterministic resize only
+            img_pil = F.resize(
+                img_pil, size=(self.image_size, self.image_size),
+                interpolation=InterpolationMode.BILINEAR
+            )
+            mask_pil = F.resize(
+                mask_pil, size=(self.image_size, self.image_size),
+                interpolation=InterpolationMode.NEAREST
+            )
 
         return img_pil, mask_pil
 
@@ -259,6 +271,10 @@ class HistologyDataset(Dataset):
 
         # 6) normalize img
         img_t = transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)(img_t)
+
+        # 6b) random erasing on image only (train only)
+        if self.is_train and self.random_erasing is not None:
+            img_t = self.random_erasing(img_t)
 
         # 7) concatenate img + mask
         x4 = torch.cat([img_t, mask_t], dim=0)  # 4xHxW
