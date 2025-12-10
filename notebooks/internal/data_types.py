@@ -9,7 +9,6 @@ import torch
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
 from PIL import Image
-from PIL import ImageFilter
 from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
@@ -84,12 +83,12 @@ class DataSet(DictLike):
     """
     train_df: pd.DataFrame
     test_df: pd.DataFrame
-    train_transforms: transforms.Compose
-    val_test_transforms: transforms.Compose
     idx2label: dict[int, str]
     label2idx: dict[str, int]
     num_K_folds: int
-    image_size: int
+    train_transforms: transforms.Compose | None = None
+    val_test_transforms: transforms.Compose | None = None
+    image_size: int | None = None
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 """
