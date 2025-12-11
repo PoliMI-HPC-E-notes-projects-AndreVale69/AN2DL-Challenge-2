@@ -111,6 +111,7 @@ class HistologyDataset(Dataset):
             patch_mode: bool = False,
             patches_per_image: int = 1,
             patch_size: Optional[int] = None,
+            apply_artifact_augs: bool = True,
     ):
         """
         df: DataFrame with columns:
@@ -138,6 +139,7 @@ class HistologyDataset(Dataset):
         self.image_size = image_size
         self.is_train = is_train
         self.use_mask_crop = use_mask_crop
+        self.apply_artifact_augs = apply_artifact_augs
 
         self.patch_mode = patch_mode if is_train else False
         self.patches_per_image = patches_per_image if self.patch_mode else 1
@@ -414,6 +416,9 @@ class HistologyDataset(Dataset):
         to make the model robust to slide / scanner artefacts.
         Train only.
         """
+        if not self.apply_artifact_augs:
+            return img_pil
+
         # 1) Gaussian blur (out-of-focus / smear) – LOW probability
         if random.random() < 0.15:  # 15%
             radius = random.uniform(0.5, 1.2)
@@ -477,11 +482,11 @@ class HistologyDataset(Dataset):
         mask_t = mask_t.unsqueeze(0)  # 1xHxW
 
         # Zero out background in the image using the mask
-        mask_bin = (mask_t > 0.5).float()  # 1xHxW binary
+        # mask_bin = (mask_t > 0.5).float()  # 1xHxW binary
         # Broadcast to 3 channels for normalization
-        rgb_mask = mask_bin.expand_as(img_t)  # 3xHxW
+        # rgb_mask = mask_bin.expand_as(img_t)  # 3xHxW
         # Zero out background
-        img_t = img_t * rgb_mask
+        # img_t *= rgb_mask
 
         # 7) normalize image
         img_t = transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)(img_t)
