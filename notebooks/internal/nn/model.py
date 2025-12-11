@@ -1,7 +1,10 @@
 import torch
 from sklearn.metrics import accuracy_score, f1_score
 from sklearn.metrics import confusion_matrix
+from timm.utils import ModelEmaV2
 from tqdm import tqdm
+
+from internal.nn.mixup_cutmix_wrapper import MixupCutmixWrapper
 
 
 def train_one_epoch(
@@ -11,7 +14,8 @@ def train_one_epoch(
         criterion,
         device,
         grad_accum_steps: int = 1,
-        mixup_fn=None
+        mixup_fn: MixupCutmixWrapper | None=None,
+        ema_model: ModelEmaV2 | None = None
 ):
     """
     Train the model for one epoch.
@@ -24,6 +28,7 @@ def train_one_epoch(
         device: Device to run the training on (CPU or GPU).
         grad_accum_steps: Number of steps to accumulate gradients before updating weights.
         mixup_fn: Optional mixup function for data augmentation.
+        ema_model: Optional ModelEmaV2 instance for EMA tracking.
     """
     model.train()
     running_loss = 0.0
@@ -62,6 +67,10 @@ def train_one_epoch(
         # update every grad_accum_steps or at the very last batch
         if (step + 1) % grad_accum_steps == 0 or (step + 1) == num_batches:
             optimizer.step()
+
+            if ema_model is not None:
+                ema_model.update(model)
+
             optimizer.zero_grad()
 
         # ----- metrics / logging -----
