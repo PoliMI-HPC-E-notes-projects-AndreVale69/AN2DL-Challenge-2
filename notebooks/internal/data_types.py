@@ -481,6 +481,8 @@ class HistologyDataset(Dataset):
         mask_t = torch.from_numpy(mask_np_final).float() / 255.0  # HxW in [0,1]
         mask_t = mask_t.unsqueeze(0)  # 1xHxW
 
+        mask_bin = (mask_t > 0.5).float()  # [1, H, W]
+        img_t = img_t * mask_bin  # broadcast to [3, H, W]
         # Zero out background in the image using the mask
         # mask_bin = (mask_t > 0.5).float()  # 1xHxW binary
         # Broadcast to 3 channels for normalization
@@ -488,7 +490,7 @@ class HistologyDataset(Dataset):
         # Zero out background
         # img_t *= rgb_mask
 
-        # 7) normalize image
+        # 7) normalize image (after masking)
         img_t = transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)(img_t)
 
         # 8) random erasing

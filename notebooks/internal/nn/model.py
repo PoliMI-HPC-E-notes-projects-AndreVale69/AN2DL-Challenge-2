@@ -129,7 +129,7 @@ def validate(model, loader, criterion, device, idx2label=None, print_report=Fals
             target_names = [idx2label[i] for i in range(len(idx2label))]
 
         print("\nPer-class report (VAL):")
-        print(classification_report(all_targets, all_preds, target_names=target_names, digits=3))
+        print(classification_report(all_targets, all_preds, target_names=target_names, digits=3, zero_division=0.0))
 
     print("Pred distribution:", np.bincount(all_preds, minlength=4))
     print("True distribution:", np.bincount(all_targets, minlength=4))
