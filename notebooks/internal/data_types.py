@@ -112,6 +112,7 @@ class HistologyDataset(Dataset):
             patches_per_image: int = 1,
             patch_size: Optional[int] = None,
             apply_artifact_augs: bool = True,
+            apply_random_erasing: bool = True,
     ):
         """
         df: DataFrame with columns:
@@ -161,12 +162,11 @@ class HistologyDataset(Dataset):
         )
 
         # if is_train, add random erasing to transforms
-        # self.random_erasing: Optional[transforms.RandomErasing] = transforms.RandomErasing(
-        #     p=0.25,
-        #     scale=(0.02, 0.15),
-        #     ratio=(0.3, 3.3)
-        # ) if is_train else None
-        self.random_erasing = None
+        self.random_erasing: Optional[transforms.RandomErasing] = transforms.RandomErasing(
+            p=0.25,
+            scale=(0.01, 0.05),
+            ratio=(0.3, 3.3)
+        ) if is_train and apply_random_erasing else None
 
     def __len__(self):
         return len(self.df)

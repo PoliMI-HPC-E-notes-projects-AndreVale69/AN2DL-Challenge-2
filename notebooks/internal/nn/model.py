@@ -1,5 +1,7 @@
+import numpy as np
 import torch
 from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 from timm.utils import ModelEmaV2
 from tqdm import tqdm
@@ -92,7 +94,7 @@ def train_one_epoch(
     return epoch_loss, acc, f1
 
 @torch.no_grad()
-def validate(model, loader, criterion, device):
+def validate(model, loader, criterion, device, idx2label=None, print_report=False):
     model.eval()
     running_loss = 0.0
     all_preds, all_targets = [], []
@@ -114,8 +116,22 @@ def validate(model, loader, criterion, device):
 
     epoch_loss = running_loss / len(loader.dataset)
     acc = accuracy_score(all_targets, all_preds)
-    f1 = f1_score(all_targets, all_preds, average='macro')
+    f1 = f1_score(all_targets, all_preds, average="macro")
     cm = confusion_matrix(all_targets, all_preds)
 
     print("Confusion matrix:\n", cm)
+
+    if print_report:
+        if idx2label is None:
+            # fallback: class names are just indices
+            target_names = [str(i) for i in sorted(set(all_targets.tolist() + all_preds.tolist()))]
+        else:
+            target_names = [idx2label[i] for i in range(len(idx2label))]
+
+        print("\nPer-class report (VAL):")
+        print(classification_report(all_targets, all_preds, target_names=target_names, digits=3))
+
+    print("Pred distribution:", np.bincount(all_preds, minlength=4))
+    print("True distribution:", np.bincount(all_targets, minlength=4))
+
     return epoch_loss, acc, f1
