@@ -52,13 +52,13 @@ class MILDatasetMemmapRanges(Dataset):
         start, end = self.slide_to_patchidx[s]
         start, end = int(start), int(end)
 
-        x = torch.from_numpy(np.asarray(self.X[start:end]))  # (n,H,W,3)
-        x = x.permute(0, 3, 1, 2).float().div_(255.0)        # (n,3,H,W)
+        x_np = np.array(self.X[start:end], copy=True)  # (n,H,W,3) writable
+        x = torch.from_numpy(x_np).permute(0, 3, 1, 2).float() / 255.0  # (n,3,H,W)
 
         if self.M is not None:
-            m = torch.from_numpy(np.asarray(self.M[start:end]))   # (n,H,W,1)
-            m = m.permute(0, 3, 1, 2).float().div_(255.0)         # (n,1,H,W)
-            x = torch.cat([x, m], dim=1)                          # (n,4,H,W)
+            m_np = np.array(self.M[start:end], copy=True)  # (n,H,W,1) writable
+            m = torch.from_numpy(m_np).permute(0, 3, 1, 2).float() / 255.0  # (n,1,H,W)
+            x = torch.cat([x, m], dim=1)  # (n,4,H,W)
 
         if self.transform is not None:
             x = torch.stack([self.transform(xi) for xi in x], dim=0)
