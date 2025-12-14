@@ -2,72 +2,73 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-class MILDatasetMemmap(Dataset):
+class MILDatasetMemmapRanges(Dataset):
     """
-    MIL dataset: one item = one slide (bag) of variable #patches.
-    Instances stored in a memmapped numpy array (N, H, W, C) or (N, C, H, W).
+    One item = one slide (bag).
+    Instances are stored contiguously in a big memmap:
+      X: (total_patches, H, W, 3)
+      M: (total_patches, H, W, 1) optional
+    slide_to_patchidx: (n_slides, 2) with [start, end)
+    y: (n_slides,)
     """
     def __init__(
         self,
-        bags_df,
-        memmap_path: str,
+        x_path: str,
+        y_path: str,
+        idx_path: str,
         *,
-        x_key: str = "patch_ids",
-        y_key: str = "label",
-        id_key: str = "slide_id",
-        mmap_shape: tuple | None = None,
-        mmap_dtype=np.uint8,
+        m_path: str | None = None,
+        patch_size: int = 384,
         mmap_mode: str = "r",
-        channels_first: bool = False,   # set True if stored as (N,C,H,W)
-        transform=None,                 # instance-level transform (applied to each patch)
-        bag_transform=None,             # bag-level transform (rare; e.g. shuffle, drop, etc.)
+        bag_transform=None,     # e.g. ShuffleAndCapBag
+        transform=None,         # instance transform (applied per patch tensor)
         return_meta: bool = False,
     ):
-        self.df = bags_df.reset_index(drop=True)
-        self.x_key = x_key
-        self.y_key = y_key
-        self.id_key = id_key
+        self.patch_size = patch_size
         self.transform = transform
         self.bag_transform = bag_transform
         self.return_meta = return_meta
-        self.channels_first = channels_first
 
-        # Load memmap
-        if mmap_shape is None:
-            self.X = np.load(memmap_path, mmap_mode=mmap_mode)
-        else:
-            self.X = np.memmap(memmap_path, dtype=mmap_dtype, mode=mmap_mode, shape=mmap_shape)
+        self.y = np.load(y_path).astype(np.int64)
+        self.slide_to_patchidx = np.load(idx_path).astype(np.int64)
+
+        total_patches = int(self.slide_to_patchidx[-1, 1])  # last end
+        self.X = np.memmap(
+            x_path, dtype=np.uint8, mode=mmap_mode,
+            shape=(total_patches, patch_size, patch_size, 3)
+        )
+
+        self.M = None
+        if m_path is not None:
+            self.M = np.memmap(
+                m_path, dtype=np.uint8, mode=mmap_mode,
+                shape=(total_patches, patch_size, patch_size, 1)
+            )
 
     def __len__(self):
-        return len(self.df)
+        return len(self.y)
 
-    def __getitem__(self, idx: int):
-        row = self.df.iloc[idx]
-        patch_ids = row[self.x_key]
-        y = int(row[self.y_key])
-        slide_id = row[self.id_key] if self.id_key in row else idx
+    def __getitem__(self, s: int):
+        start, end = self.slide_to_patchidx[s]
+        start, end = int(start), int(end)
 
-        # gather instances
-        arr = self.X[patch_ids]  # shape: (n_i, H,W,C) or (n_i,C,H,W)
+        x = torch.from_numpy(np.asarray(self.X[start:end]))  # (n,H,W,3)
+        x = x.permute(0, 3, 1, 2).float().div_(255.0)        # (n,3,H,W)
 
-        # convert to torch float in [0,1]
-        x = torch.from_numpy(np.asarray(arr))
-        if not self.channels_first:
-            # (n,H,W,C) -> (n,C,H,W)
-            x = x.permute(0, 3, 1, 2)
-        x = x.float().div_(255.0)
+        if self.M is not None:
+            m = torch.from_numpy(np.asarray(self.M[start:end]))   # (n,H,W,1)
+            m = m.permute(0, 3, 1, 2).float().div_(255.0)         # (n,1,H,W)
+            x = torch.cat([x, m], dim=1)                          # (n,4,H,W)
 
-        # instance transforms (apply per patch)
         if self.transform is not None:
             x = torch.stack([self.transform(xi) for xi in x], dim=0)
 
-        # bag transforms (optional)
         if self.bag_transform is not None:
             x = self.bag_transform(x)
 
-        y = torch.tensor(y, dtype=torch.long)
+        y = torch.tensor(int(self.y[s]), dtype=torch.long)
 
         if self.return_meta:
-            meta = {"slide_id": slide_id, "patch_ids": patch_ids}
+            meta = {"slide_index": s, "start": start, "end": end, "bag_size": x.size(0)}
             return x, y, meta
         return x, y
