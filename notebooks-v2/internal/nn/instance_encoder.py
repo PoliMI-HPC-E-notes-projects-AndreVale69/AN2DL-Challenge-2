@@ -2,7 +2,7 @@ import timm
 import torch.nn as nn
 
 class InstanceEncoder(nn.Module):
-    def __init__(self, backbone_name="tf_efficientnet_b0_ns", in_chans=4, out_dim=256, pretrained=True):
+    def __init__(self, backbone_name="tf_efficientnet_b0.ns_jft_in1k", in_chans=4, out_dim=256, pretrained=True):
         super().__init__()
 
         self.backbone = timm.create_model(
