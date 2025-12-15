@@ -52,8 +52,9 @@ class MILDatasetMemmapRanges(Dataset):
         start, end = self.slide_to_patchidx[s]
         start, end = int(start), int(end)
 
-        x_np = np.array(self.X[start:end], copy=True)  # (n,H,W,3) writable
-        x = torch.from_numpy(x_np).permute(0, 3, 1, 2).float() / 255.0  # (n,3,H,W)
+        x_np = np.asarray(self.X[start:end])  # (n,H,W,3) non-writable
+        x = torch.from_numpy(x_np).permute(0, 3, 1, 2)  # uint8 tensor (non-writable is fine)
+        x = x.float().div_(255.0)  # creates new float tensor anyway
 
         if self.M is not None:
             m_np = np.array(self.M[start:end], copy=True)  # (n,H,W,1) writable
