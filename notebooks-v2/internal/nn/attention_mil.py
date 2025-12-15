@@ -15,7 +15,7 @@ class AttentionMIL(nn.Module):
             nn.Linear(encoder_dim, n_classes)
         )
         self.enc_chunk = enc_chunk
-        self.inst_drop = nn.Dropout(p=0.25)
+        self.inst_drop = nn.Dropout(p=0.35)
 
     def attn_entropy(self, a):
         # a: (n_i, 1), assume already normalized (softmax)
