@@ -6,7 +6,7 @@ from internal.nn.instance_encoder import InstanceEncoder
 
 
 class AttentionMIL(nn.Module):
-    def __init__(self, n_classes, encoder_dim=256, in_chans=4):
+    def __init__(self, n_classes, encoder_dim=256, in_chans=4, enc_chunk=2):
         super().__init__()
         self.encoder = InstanceEncoder(in_chans=in_chans, out_dim=encoder_dim)
         self.attn = GatedAttention(encoder_dim)
@@ -14,6 +14,14 @@ class AttentionMIL(nn.Module):
             nn.Dropout(0.25),
             nn.Linear(encoder_dim, n_classes)
         )
+        self.enc_chunk = enc_chunk
+
+    def encode_chunked(self, xcat: torch.Tensor) -> torch.Tensor:
+        # xcat: (N_total, 3, H, W)
+        feats = []
+        for xb in xcat.split(self.enc_chunk, dim=0):    # xb: (k,C,H,W)
+            feats.append(self.encoder(xb))              # (k,D)
+        return torch.cat(feats, dim=0)                  # (N_total,D)
 
     def forward(self, xcat, bag_sizes):
         # xcat: (N_total, 3, H, W)
@@ -25,7 +33,8 @@ class AttentionMIL(nn.Module):
             "xcat rows must match sum(bag_sizes), got {} and {}".format(xcat.size(0), bag_sizes.sum().item())
         )
 
-        feats = self.encoder(xcat)   # (N_total, D)
+        # Encode all instances in chunks to save memory
+        feats = self.encode_chunked(xcat)   # (N_total, D)
 
         bags = torch.split(feats, bag_sizes.tolist(), dim=0)
 
