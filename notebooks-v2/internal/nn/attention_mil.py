@@ -11,7 +11,7 @@ class AttentionMIL(nn.Module):
         self.encoder = InstanceEncoder(in_chans=in_chans, out_dim=encoder_dim)
         self.attn = GatedAttention(encoder_dim)
         self.classifier = nn.Sequential(
-            nn.Dropout(0.25),
+            nn.Dropout(0.50),
             nn.Linear(encoder_dim, n_classes)
         )
         self.enc_chunk = enc_chunk
