@@ -14,9 +14,9 @@ class MILDatasetMemmapRanges(Dataset):
     def __init__(
         self,
         x_path: str,
-        y_path: str,
         idx_path: str,
         *,
+        y_path: str | None = None,
         m_path: str | None = None,
         patch_size: int = 384,
         mmap_mode: str = "r",
@@ -29,7 +29,10 @@ class MILDatasetMemmapRanges(Dataset):
         self.bag_transform = bag_transform
         self.return_meta = return_meta
 
-        self.y = np.load(y_path).astype(np.int64)
+        if y_path is not None:
+            self.y = np.load(y_path).astype(np.int64)
+        else:
+            self.y = None
         self.slide_to_patchidx = np.load(idx_path).astype(np.int64)
 
         total_patches = int(self.slide_to_patchidx[-1, 1])  # last end
@@ -46,7 +49,7 @@ class MILDatasetMemmapRanges(Dataset):
             )
 
     def __len__(self):
-        return len(self.y)
+        return len(self.slide_to_patchidx)
 
     def __getitem__(self, s: int):
         start, end = self.slide_to_patchidx[s]
@@ -67,9 +70,12 @@ class MILDatasetMemmapRanges(Dataset):
         if self.bag_transform is not None:
             x = self.bag_transform(x)
 
-        y = torch.tensor(int(self.y[s]), dtype=torch.long)
+        if self.y is not None:
+            y = torch.tensor(int(self.y[s]), dtype=torch.long)
+            if self.return_meta:
+                meta = {"slide_index": s, "start": start, "end": end, "bag_size": x.size(0)}
+                return x, y, meta
+            return x, y
 
-        if self.return_meta:
-            meta = {"slide_index": s, "start": start, "end": end, "bag_size": x.size(0)}
-            return x, y, meta
-        return x, y
+        meta = {"slide_index": s, "start": start, "end": end, "bag_size": x.size(0)}
+        return x, meta
