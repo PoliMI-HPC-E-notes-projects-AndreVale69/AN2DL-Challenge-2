@@ -9,6 +9,8 @@ matplotlib
 seaborn
 scikit-learn
 pandas-stubs
+opencv-python
+imagehash
 
 # Deep Learning libraries
 torchvision

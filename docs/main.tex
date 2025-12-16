@@ -1,0 +1,251 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{lipsum}
+\usepackage{multicol}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\newcolumntype{Y}{>{\centering\arraybackslash}X}
+\usepackage[left=2.00cm, right=2.00cm, top=2.00cm, bottom=2.00cm]{geometry}
+
+\title{AN2DL Reports Template}
+
+\begin{document}
+    
+    \begin{figure}[H]
+        \raggedright
+        \includegraphics[scale=0.5]{polimi.png} \hfill \includegraphics[scale=0.3]{airlab.jpeg}
+    \end{figure}
+    
+    \vspace{5mm}
+    
+    \begin{center}
+        % Select between First and Second
+        {\Large \textbf{AN2DL - Second Challenge Report}}\\
+        \vspace{2mm}
+        % Change with your Team Name
+        {\Large \textbf{I Neuroni Ribelli}}\\
+        \vspace{2mm}
+        % Team Members Information
+        {\large Alberto Ondei,}
+        {\large Andrea Valentini,}
+        {\large Abdullah Javed,}
+        {\large Filippo Barbari}\\
+        \vspace{2mm}
+        % Codabench Nicknames
+        {albertoondei,}
+        {andrevale69,}
+        {javedhercules,}
+        {filippobarbari}\\
+        \vspace{2mm}
+        % Matriculation Numbers
+        {277739,}
+        {260236,}
+        {275266,}
+        {259411}\\
+        \vspace{5mm}
+        \today
+    \end{center}  
+    \vspace{5mm}
+    
+    \begin{multicols}{2}
+\section{Introduction}
+
+We address a 4-class histopathology classification task (\texttt{Luminal A}, \texttt{Luminal B}, \texttt{HER2(+)}, \texttt{Triple negative}) from low-magnification WSI patches, each associated with a binary mask. Our methodology followed a three-step pipeline:
+\begin{enumerate}[noitemsep]
+    \item Dataset cleaning and preprocessing;
+    \item Training of a custom CNN from scratch;
+    \item Adoption of advanced architectures via \textbf{transfer learning} and \textbf{fine-tuning}.
+\end{enumerate}
+
+
+\vspace{-1em}
+
+\section{Problem Analysis}
+
+The dataset includes \textbf{1,272 image-mask pairs} with heterogeneous resolutions: \textbf{691 labeled} for training and \textbf{477 unlabeled} for testing. Global resizing can remove localized multi-scale cues typical of histopathology images \cite{campanella2019clinical}.
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{class_samples_grid_2x2.png}
+    \caption{Sample images from each molecular subtype class in the training set.}
+    \label{fig:dataset_samples}
+\end{figure}
+
+\noindent
+\textbf{Quality control.}
+We automatically ranked samples using simple color/texture statistics and manually inspected outliers, a common practice to reduce the impact of dataset noise \cite{northcutt2021confident}.
+This revealed \textbf{110 contaminated images}, which were removed.
+Keeping them caused unstable optimization and worse validation behavior.
+
+\vspace{-1em}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.42\linewidth]{stain.png}
+    \includegraphics[width=0.55\linewidth]{shrek.png}
+    \caption{Examples of anomalous samples removed from the training set during quality control.}
+    \label{fig:anomalies}
+\end{figure}
+
+\vspace{-1em}
+
+\noindent
+\textbf{Spatial sparsity.}
+Relevant tissue occupies a limited image area, motivating mask-guided preprocessing and patch-based modeling.
+
+\noindent
+\textbf{Class imbalance.} Dataset imbalance was handled using class weights to penalize underrepresented classes.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{class_distribution.png}
+    \caption{Class distribution in the cleaned training set after removing contaminated samples.}
+    \label{fig:class_distribution}
+\end{figure}
+
+\section{Method}
+\subsection{Baseline: CNN from scratch}
+We started with a small CNN trained from scratch to establish a baseline.
+Training from scratch on limited medical data is often prone to overfitting \cite{shin2016deep}.
+As expected, the model tended to overfit and was sensitive to augmentation: when augmentations were too strong, training often failed to converge or the model collapsed to predict only a few classes; when augmentations were too weak, the model rapidly overfit.
+Typical scores were \textbf{$\approx 0.35$ weighted F1 on validation} and \textbf{$\approx 0.28$ on test}.
+
+\subsection{Transfer learning: backbone search}
+Given the limited size of the labeled set, we shifted from training from scratch to \textbf{transfer learning}, i.e., initializing the feature extractor with \textbf{ImageNet-pretrained} weights and fine-tuning on the target task. This choice is well-motivated in medical imaging, where low-level and mid-level visual primitives (edges, textures, color patterns) can transfer, while higher-level layers adapt to domain-specific morphology \cite{shin2016deep}.
+
+\begin{itemize}%[leftmargin=*, itemsep=1pt]
+    \item We first explored \texttt{EfficientNet-B0/B1} due to their strong accuracy/efficiency trade-off and rapid iteration speed \cite{tan2019efficientnet}. In our setting, they trained reliably but tended to plateau early, suggesting a capacity limit when the model must discriminate subtle histological patterns.
+    \item The \texttt{tf\_efficientnet\_b1\_ns} variant was generally more stable (smoother validation curves), likely due to improved pretraining and normalization choices in the \emph{Noisy Student} pipeline.
+    \item We also tested \texttt{tf\_efficientnetv2\_s.in21k}, where larger-scale pretraining improved convergence and slightly increased validation performance \cite{tan2021efficientnetv2}.
+\end{itemize}
+Nevertheless, EfficientNet-based runs remained sensitive to the foreground/background ratio and tended to underutilize fine-grained tissue details when trained with global resizing. These limitations motivated the transition to architectures explicitly designed to better capture localized patterns under patch-based learning.
+
+\subsection{Final pipeline: ConvNeXt $\boldsymbol{+}$ mask-guided patching}
+Our best-performing setup combined three components (implemented in the final notebook) :
+
+\begin{enumerate}
+    \item \textbf{Mask-guided crop $\boldsymbol{+}$ background suppression.} We crop each image around the mask bounding box with padding, optionally applying the mask to reduce background influence.
+    \item \textbf{Patch-based training/inference.} To preserve resolution while controlling memory, we avoid global resizing: we sample \textbf{one random patch} per image in the training phase, while during inference we extract a \textbf{dense grid of overlapping patches} and aggregate predictions \cite{li2019weakly}.
+    \item \textbf{Backbone: ConvNeXt-Base pretrained on ImageNet.} ConvNeXt modernizes CNN design while retaining convolutional inductive bias; in our case it paired well with patching and delivered the most consistent gains \cite{liu2022convnext}.
+\end{enumerate}
+
+\subsection{Training and model selection}
+We trained with \textbf{5-fold stratified cross-validation} to obtain robust estimates and reduce variance. Key choices (final configuration):
+\begin{itemize}%[leftmargin=*, itemsep=1pt]
+    \item Optimizer: \textbf{AdamW}, with \textbf{two learning rates} (smaller for backbone, larger for classifier head).
+    \item Loss: \textbf{weighted cross-entropy} (fold-wise class weights) + \textbf{label smoothing} (0.05). \cite{szegedy2016rethinking}
+    \item Regularization: early stopping on validation F1; mixed precision on GPU.
+\end{itemize}
+Table \ref{tab:backbone_comparison} summarizes the estimated validation performance of the evaluated backbones.
+\vspace{-0.6em}
+
+\subsection{Ensemble inference (submission)}
+We trained one model per fold and ensembled them at test time.
+For each test image we aggregate: (i) patch predictions (dense grid), (ii) simple TTA flips, (iii) fold ensemble averaging.
+To reduce noise, we keep only the \textbf{Top-K most confident patches} for each view before combining probabilities.
+
+
+\section{Failed Experiments}
+Some ideas were promising but did not translate into better validation stability or final scores:
+
+\begin{itemize}[leftmargin=*, itemsep=2pt]
+    \item \textbf{Mask as explicit input (dual-branch networks).}
+    We explored dual-branch architectures processing RGB images and masks separately with late feature fusion.
+    This substantially increased model complexity and overfitting, while providing no consistent gains.
+    Masks proved more effective when used as a \emph{preprocessing prior} rather than as a learnable input.
+
+    \item \textbf{Multiple Instance Learning (MIL) with attention.}
+    Images were modeled as bags of patches aggregated via attention mechanisms.
+    Although theoretically appealing, training was computationally expensive and highly sensitive to patch sampling and hyperparameters, resulting in unstable validation behavior and no consistent improvement over simpler aggregation strategies \cite{ilse2018attention}.
+
+    \item \textbf{Over-aggressive augmentation.}
+    Strong geometric and color perturbations often disrupted optimization, leading to flat training curves or class collapse.
+    A moderate augmentation regime combined with patch-based sampling yielded significantly more stable and robust learning.
+\end{itemize}
+
+\vspace{-1.5em}
+
+\section{Results and Discussion}
+
+A major practical challenge was the \textbf{high variance of validation F1} across epochs and data splits.
+This behavior was expected given the limited dataset size, class imbalance, and intrinsic stochasticity of the pipeline
+(random patch sampling, data augmentation, and GPU non-determinism).
+In several runs, transient overfitting was observed, with steadily improving training metrics while validation F1 exhibited noticeable oscillations.
+
+To mitigate these effects, we adopted \textbf{5-fold stratified cross-validation} for model selection, combined with
+early stopping on validation F1 and \textbf{fold ensembling} at inference time.
+Although validation performance was not perfectly stable, this strategy substantially reduced extreme fluctuations
+and yielded more reliable predictions compared to single-split training.
+
+Overall, the transition from global image processing to \textbf{mask-guided cropping and patch-based inference}
+produced the most consistent performance gains, particularly by reducing background-induced errors and limiting overfitting.
+Residual errors were primarily associated with ambiguous morphology or extremely small informative tissue regions.
+
+\vspace{-.8em}
+
+\section{Conclusion}
+
+This project highlights the central role of data quality, spatial focus, and resolution preservation in histopathology image classification.
+Initial experiments exposed the limitations of both simple CNNs trained from scratch and overly complex modeling choices under limited supervision.
+By removing contaminated samples, exploiting masks as preprocessing priors, adopting patch-based full-resolution learning, and combining cross-validation with ensembling, we derived a robust and stable classification pipeline.
+These results emphasize that \textbf{carefully aligned architectural and data-centric choices are often more effective than increasing model complexity alone}.
+
+    \end{multicols}
+
+\begin{table*}[t]
+    \centering
+    \setlength{\tabcolsep}{4pt}
+    \caption{Estimated validation performance of the evaluated backbones.
+    Metrics are reported as averages over cross-validation folds.
+    All results were obtained through fine-tuning.
+    Best results are highlighted in \textbf{bold}.}
+    \begin{tabularx}{\textwidth}{lYYYYc}
+    \toprule
+    Model & Accuracy & Precision & Recall & ROC AUC \\
+    \midrule
+    EfficientNet-B0 (Google)
+        & 0.33 $\pm$ 0.04
+        & 0.34 $\pm$ 0.03
+        & 0.33 $\pm$ 0.04
+        & 0.62 $\pm$ 0.05 \\
+    
+    EfficientNet-B1 (Google)
+        & 0.35 $\pm$ 0.03
+        & 0.36 $\pm$ 0.03
+        & 0.35 $\pm$ 0.03
+        & 0.65 $\pm$ 0.04 \\
+    
+    tf\_efficientnet\_b1\_ns
+        & 0.38 $\pm$ 0.02
+        & 0.39 $\pm$ 0.02
+        & 0.38 $\pm$ 0.02
+        & 0.69 $\pm$ 0.03 \\
+    
+    tf\_efficientnetv2\_s.in21k
+        & 0.40 $\pm$ 0.02
+        & 0.41 $\pm$ 0.04
+        & 0.40 $\pm$ 0.03
+        & 0.72 $\pm$ 0.03 \\
+    
+    ConvNeXt-Base (patch-based)
+        & \textbf{0.43 $\pm$ 0.02}
+        & \textbf{0.43 $\pm$ 0.02}
+        & \textbf{0.43 $\pm$ 0.02}
+        & \textbf{0.76 $\pm$ 0.03} \\
+    \bottomrule
+    \end{tabularx}
+    \label{tab:backbone_comparison}
+\end{table*}
+
+    \newpage
+
+    \bibliography{references}
+    \bibliographystyle{abbrv}
+\end{document}

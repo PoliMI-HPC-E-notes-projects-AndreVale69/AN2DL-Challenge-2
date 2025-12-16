@@ -105,8 +105,6 @@ These masks identify the regions most likely to contain the diseased tissue.
 Our staff guarantees that the dataset has been collected in a completely orc-skin-free, booger-free,
 and absolutely sterile environment.
 
-Create a table summarizing the dataset, including:
-
 | **File Location** | **Description**                                                    |
 |-------------------|--------------------------------------------------------------------|
 | train_data.zip    | **691** image/mask pairs for model training                        |
