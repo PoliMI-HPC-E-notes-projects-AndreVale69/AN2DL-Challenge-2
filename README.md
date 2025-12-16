@@ -6,14 +6,26 @@
     - [👹 The Grumpy Doctogres Challenge](#-the-grumpy-doctogres-challenge)
     - [🧌 The Grunt Work: Molecular Subtype Classification](#-the-grunt-work-molecular-subtype-classification)
     - [🪨 Files](#-files)
-    - [🧭 Data Overview](#-data-overview)
     - [🗺️ Validation](#-validation)
 
 ---
 
 ## Overview
 
-This repository contains the dataset and baseline code for the AN2DL 2025-2026 Challenge 2: Image Classification.
+This repository contains the dataset, baseline code, and example notebooks for the AN2DL 2025-2026 Challenge 2 (Image Classification).
+It is intended to provide a reproducible starting point for developing and evaluating deep-learning models that predict molecular subtypes from histology images.
+
+The repository includes:
+- Dataset files and labels used in the competition (`train_data`, `test_data`, `train_labels.csv`), including optional auxiliary binary masks.
+- Exploratory data analysis and preprocessing notebooks in `notebooks/` and `notebooks-v2/`.
+- Baseline modeling code, training utilities, and reference implementations in `submitted-notebook/` and `models/`.
+- Internal helper modules and data-processing scripts used by the notebooks (`notebooks/internal`, `notebooks-v2/internal`).
+
+Quick start
+1. Follow the `Prerequisites` section below to install `git-lfs` and create a Python virtual environment.
+2. Pull the large data files with `git lfs pull` (see the `Prerequisites` steps).
+3. Run `notebooks/00_prerequisites.ipynb` or `notebooks-v2/00_prerequisites.ipynb` to install remaining dependencies and prepare the environment.
+4. Inspect the preprocessing notebooks (`01*`) and the model notebooks (`03_model.ipynb`, `04_model_training.ipynb`) to reproduce or adapt the baseline training pipeline.
 
 Team members:
 - [Andrea Valentini](https://github.com/AndreVale69/)
