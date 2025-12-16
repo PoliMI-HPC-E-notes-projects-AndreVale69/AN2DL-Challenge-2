@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+import torch.nn.functional as F
 
 class MILDatasetMemmapRanges(Dataset):
     """
@@ -55,14 +56,21 @@ class MILDatasetMemmapRanges(Dataset):
         start, end = self.slide_to_patchidx[s]
         start, end = int(start), int(end)
 
-        x_np = np.asarray(self.X[start:end])  # (n,H,W,3) non-writable
-        x = torch.from_numpy(x_np).permute(0, 3, 1, 2)  # uint8 tensor (non-writable is fine)
-        x = x.float().div_(255.0)  # creates new float tensor anyway
+        x_np = np.asarray(self.X[start:end])  # (n,H,W,3)
+        x = torch.from_numpy(x_np).permute(0, 3, 1, 2).float().div_(255.0)  # (n,3,384,384)
 
         if self.M is not None:
-            m_np = np.array(self.M[start:end], copy=True)  # (n,H,W,1) writable
-            m = torch.from_numpy(m_np).permute(0, 3, 1, 2).float() / 255.0  # (n,1,H,W)
-            x = torch.cat([x, m], dim=1)  # (n,4,H,W)
+            m_np = np.asarray(self.M[start:end])
+            m = torch.from_numpy(m_np).permute(0, 3, 1, 2).float().div_(255.0)
+            x = torch.cat([x, m], dim=1)  # (n,4,384,384)
+
+        if x.shape[-1] != 224:
+            x = F.interpolate(
+                x,
+                size=(224, 224),
+                mode="bilinear",
+                align_corners=False
+            )
 
         if self.transform is not None:
             x = torch.stack([self.transform(xi) for xi in x], dim=0)

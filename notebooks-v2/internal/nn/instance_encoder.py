@@ -13,6 +13,8 @@ class InstanceEncoder(nn.Module):
             in_chans=in_chans,
         )
 
+        self.backbone.set_grad_checkpointing(True)
+
         feat_dim = self.backbone.num_features
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.proj = nn.Linear(feat_dim, out_dim)
