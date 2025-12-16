@@ -11,11 +11,11 @@ class AttentionMIL(nn.Module):
         self.encoder = InstanceEncoder(in_chans=in_chans, out_dim=encoder_dim)
         self.attn = GatedAttention(encoder_dim)
         self.classifier = nn.Sequential(
-            nn.Dropout(0.50),
+            nn.Dropout(0.25),
             nn.Linear(encoder_dim, n_classes)
         )
         self.enc_chunk = enc_chunk
-        self.inst_drop = nn.Dropout(p=0.35)
+        self.inst_drop = nn.Dropout(p=0.25)
 
     def attn_entropy(self, a):
         # a: (n_i, 1), assume already normalized (softmax)
