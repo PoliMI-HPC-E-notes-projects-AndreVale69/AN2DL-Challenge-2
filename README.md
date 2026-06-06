@@ -126,7 +126,7 @@ and absolutely sterile environment.
 The following is an example image with the corresponding auxiliary mask.
 The use of masks is optional for classification purposes, but may be helpful. Ogres do not waste.
 
-![auxiliary-mask-example.png](_static/auxiliary-mask-example.png)
+![auxiliary-mask-example.jpg](_static/auxiliary-mask-example.jpg)
 
 
 ### 🗺️ Validation
